@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -280,6 +281,10 @@ func parseUintBuf(b []byte) (int, int, error) {
 		return -1, 0, errEmptyInt
 	}
 	v := 0
+	// Max unsigned value that fits in an int, divided by 10 so we can guard
+	// the multiplication before it overflows. math.MaxInt adapts to the
+	// platform's int size (32- or 64-bit).
+	maxVal := math.MaxInt / 10
 	for i := range n {
 		c := b[i]
 		k := c - '0'
@@ -289,12 +294,16 @@ func parseUintBuf(b []byte) (int, int, error) {
 			}
 			return v, i, nil
 		}
-		vNew := 10*v + int(k)
-		// Test for overflow.
-		if vNew < v {
+		// Reject before multiplying once 10*v would exceed MaxInt,
+		// otherwise the multiplication can wrap to a wrong positive value.
+		if v > maxVal {
 			return -1, i, errTooLongInt
 		}
-		v = vNew
+		v = 10*v + int(k)
+		// Test for overflow at the exact boundary (v == maxVal).
+		if v < 0 {
+			return -1, i, errTooLongInt
+		}
 	}
 	return v, n, nil
 }

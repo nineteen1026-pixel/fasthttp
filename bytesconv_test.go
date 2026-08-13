@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"html"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -332,6 +333,33 @@ func TestParseUintError(t *testing.T) {
 	// too big num
 	testParseUintError(t, "12345678901234567890")
 	testParseUintError(t, "1234567890123456789012")
+}
+
+// TestParseUintOverflow reproduces a bug where parseUintBuf's overflow check
+// (vNew < v) only caught values that wrapped to a negative number. On a 64-bit
+// platform a 20-digit value whose intermediate prefix wraps to a positive
+// number larger than the previous value was silently accepted with a wrong
+// result instead of returning an error. See the reproducer
+// "20496382304121724020", which exceeded MaxInt64 but returned 2049638230412172404.
+func TestParseUintOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Values strictly above the platform's MaxInt must be rejected, regardless
+	// of whether the overflow wraps to a positive or negative int.
+	overflowCases := []string{
+		"20496382304121724020",           // 20 digits: wraps to a *positive* wrong value on 64-bit (the original bug)
+		"9223372036854775808",            // MaxInt64 + 1 on 64-bit
+		"9999999999999999999",            // 19 nines, exceeds MaxInt64
+		"30000000000000000000",           // 3e19
+		"123456789012345678901234567890", // far beyond any int width
+	}
+	for _, s := range overflowCases {
+		testParseUintError(t, s)
+	}
+
+	// Boundary: MaxInt itself must still parse successfully on every platform.
+	maxIntStr := strconv.FormatInt(int64(math.MaxInt), 10)
+	testParseUintSuccess(t, maxIntStr, math.MaxInt)
 }
 
 func TestParseUfloatSuccess(t *testing.T) {
